@@ -117,5 +117,11 @@ class IterableSet(BaseSet):
     def contains_set(self, value):
         pass
 
+    def is_subset_of(self,set_b):
+        for e in self.col:
+            if not set_b.is_member(e):
+                return False
+        return True
+
     def __getitem__(self, key):
         return self.col[key]

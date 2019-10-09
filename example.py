@@ -1,6 +1,8 @@
+
+
 from sets import *
 from rangelimit import RangeLimit
-
+'''
 set1 = IntegerSet(-1,2)
 
 
@@ -19,4 +21,27 @@ check_membership(3)
 check_membership(4)
 check_membership(5)
 check_membership(6)
+'''
+class Bob:
+    def __init__(self):
+        self.val = 1
+    def __add__(self, other):
+        if isinstance(other, Bob):
+            return self.val + other.val
+        return self.val + other
 
+bob1 = Bob()
+bob2 = Bob()
+bob3 = Bob()
+print(bob1 + bob2 + 2)
+
+'''
+def bob(asd):
+    print(asd.bo)
+    asd.bo()
+gi = 2
+def bo():
+    print("bo")
+gi.bo = bo
+bob(gi)
+print(type(bob))'''
