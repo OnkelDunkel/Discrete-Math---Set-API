@@ -152,13 +152,17 @@ class Range:
         )
 
     def __contains__(self,item):
-        if not is_int_or_float(item):
+        if isinstance(item, RangeEdge):
+            return item <= self.up_edge and item >= self.low_edge
+        if isinstance(item, Range):
+            return item.low_edge in self and item.up_edge in self
+        elif not is_int_or_float(item):
             return False
         elif self.is_int_range and not float(item).is_integer():
             return False
         return self.low_edge.evaluate(item) and self.up_edge.evaluate(item)
     
-    def is_overlapping(self, other):
+    def overlaps(self, other):
         if (self.low_edge <= other.low_edge and
             self.up_edge >= other.low_edge):
             return True
@@ -167,19 +171,16 @@ class Range:
             return True
         return False
 
-    def is_touching(self,other):
-        if not self.is_int_range == other.is_int_range:
-            return False
-
+    def touches(self,other):
         if self.is_int_range:
             try:
                 if self.up_edge.val == other.low_edge.val - 1:
-                    return True
+                    return True # [* self 2] & [3 other *]
             except (TypeError, SyntaxError):
                 pass
             try:
                 if self.low_edge.val == other.up_edge.val + 1:
-                    return True
+                    return True # [* other 2] & [3 self *]
             except (TypeError, SyntaxError):
                 pass
         else:
@@ -187,36 +188,22 @@ class Range:
                 self.up_edge.val != None and
                 self.up_edge.allow_equal != other.low_edge.allow_equal
                 ):
-                return True
+                return True # [* self 2] & 2[ other *] ||  [* self ]2 & [2 other *]
             if (self.low_edge.val == other.up_edge.val and 
                 self.low_edge.val != None and
                 self.low_edge.allow_equal != other.up_edge.allow_equal
                 ):
-                return True
+                return True # [* other 2] & 2[ self *] ||  [* other ]2 & [2 self *]
 
-        return self.is_overlapping(other)
-        '''
-        if self.is_int_range:
-            if (self.low_edge.val == other.up_edge.val + 1 or
-                self.up_edge.val + 1 == other.low_edge.val):
-                return True
-        else:
-            if (self.low_edge.val == other.up_edge.val and
-                (self.low_edge.allow_equal or other.up_edge.allow_equal)):
-                return True
-            elif (self.up_edge.val == other.low_edge.val and
-                (self.up_edge.allow_equal or other.low_edge.allow_equal)):
-                return True
-        return self.is_overlapping(other)
-        '''
+        return self.overlaps(other)
 
     def merge(self, other):
         if not self.is_int_range == other.is_int_range:
             raise ValueError("Can't merge float range with int range")
-        if not self.is_touching(other):
-            raise ValueError("Not ranges aren't mergeable")
+        if not self.touches(other):
+            raise ValueError("Ranges aren't mergeable")
         lower = (self.low_edge 
-            if self.low_edge >= other.low_edge 
+            if self.low_edge <= other.low_edge 
             else other.low_edge)
         upper = (self.up_edge 
             if self.up_edge >= other.up_edge 
@@ -224,7 +211,7 @@ class Range:
         return Range(lower,upper,self.is_int_range)
 
     def __add__(self,other):
-        self.merge(other)
+        return self.merge(other)
 
     def __sub__(self,other):
         pass
@@ -284,8 +271,16 @@ range2 = Range(
 )
 print(range1)
 print(range2)
-print("Is overlapping: " + str(range1.is_overlapping(range2)))
-print("Is touching: " + str(range1.is_touching(range2)))
+print("range1 overlaps range2: " + str(range1.overlaps(range2)))
+print("range1 touches range2: " + str(range1.touches(range2)))
+print("range2 touches range1: " + str(range2.touches(range1)))
+
+range3 = range1 + range2
+print(range3)
+print(range1 in range3)
+print(range2 in range3)
+print(range3 in range1)
+print(range3 in range2)
 
 r1 = Range(re_l, re_u, is_int_range=False)
 r2 = Range(9.999999, 15, is_int_range=False)
