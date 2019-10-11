@@ -1,127 +1,295 @@
 from abc import ABC, abstractmethod
-from rangelimit import RangeLimitBase, RangeLimit, validate_limits
+
+def is_int_or_float(item):
+    return isinstance(item, float) or isinstance(item, int)
+
+class RangeEdge:
+    def __init__(self, val=None, allow_equal=True, is_lower=False):
+        self.val = val
+        self.allow_equal = allow_equal
+        self.is_lower = is_lower
+    
+    def __repr__(self):
+        return "RangeEdge(val={},allow_equal={},is_lower={})".format(
+            repr(self.val),
+            repr(self.allow_equal),
+            repr(self.is_lower)
+            )
+
+    def __str__(self):
+        if self.is_lower:
+            if self.allow_equal:
+                return "[{}".format(self.val)
+            else:
+                return "{}[".format(self.val)
+        else:
+            if self.allow_equal:
+                return "{}]".format(self.val)
+            else:
+                return "]{}".format(self.val)
+    
+    def evaluate(self, item):
+        if is_int_or_float(item):
+            if self.val == None:
+                return True
+            if self.allow_equal and item == self.val:
+                return True
+            if self.is_lower:
+                return self.val < item
+            else:
+                return self.val > item
+        else:
+            return False
+    
+    def __lt__(self,other): # self < other
+        if self.val == None: # None is superior
+            return False # None can never be smaller than other.val
+        elif is_int_or_float(other):
+            '''
+            ]2 < 1: F   |   2] < 1: F   |   [2 < 1: F   |   2[ < 1: F
+          **]2 < 2: T** |   2] < 2: F   |   [2 < 2: F   |   2[ < 2: F
+            ]2 < 3: T   |   2] < 3: T   |   [2 < 3: T   |   2[ < 3: T
+            '''
+            if self.val == other and not self.allow_equal and not self.is_lower:
+                return True # see above under ** **
+            return self.val < other
+        elif not isinstance(other, RangeEdge):
+            return False # Not a comparable type
+        elif other.val == None:
+            return True # None is superior and self.val is not None
+        elif self.val == other.val:
+            if self.is_lower:
+                '''
+                [2 < ]2: F   |   [2 < 2]: F   |   [2 < [2: F   |   [2 < 2[: T
+                2[ < ]2: F   |   2[ < 2]: F   |   2[ < [2: F   |   2[ < 2[: F
+                '''
+                if (self.allow_equal and other.is_lower and not other.allow_equal):
+                    return True
+                return False
+            else:
+                '''
+                ]2 < [2: T   |   ]2 < 2[: T   |   2] < [2: F   |   2] < 2[: T
+                -------------------------------------------------------------
+                ]2 < ]2: F   |   ]2 < 2]: T   |   2] < ]2: F   |   2] < 2]: F
+                '''
+                if other.is_lower:
+                    if self.allow_equal and other.allow_equal:
+                        return False
+                    return True
+                else:
+                    if not self.allow_equal and other.allow_equal:
+                        return True
+                    return False
+        '''
+        ]2 < ]1: F   |   ]2 < 1]: F   |   2] < [1: F   |   2] < 1[: F
+        [2 < ]1: F   |   [2 < 1]: F   |   2[ < [1: F   |   2[ < 1[: F
+        ]2 < ]3: T   |   ]2 < 3]: T   |   2] < [3: T   |   2] < 3[: T
+        [2 < ]3: T   |   [2 < 3]: T   |   2[ < [3: T   |   2[ < 3[: T
+        '''
+        return self.val < other.val
+        
+    def __le__(self, other): # self <= other
+        return self < other or self == other
+
+    def __eq__(self, other): # self == other
+        if is_int_or_float(other):
+            if not self.allow_equal:
+                return False
+            return self.val == other
+        if not isinstance(other, RangeEdge):
+            return False
+        return (self.val == other.val and 
+            self.allow_equal == other.allow_equal)
+
+    def __ne__(self, other): # self != other
+        return not self == other
+
+    def __ge__(self, other): # self >= other
+        return not self < other
+
+    def __gt__(self, other): # self > other
+        return not self <= other
+
+class Range:
+    def __init__(self, low_edge, up_edge, is_int_range=False):
+        if is_int_or_float(low_edge) or low_edge == None:
+            low_edge = RangeEdge(val=low_edge)
+        if is_int_or_float(up_edge) or up_edge == None:
+            up_edge = RangeEdge(val=up_edge)
+        low_edge.is_lower = True
+        up_edge.is_lower = False
+
+        if is_int_range:
+            if not low_edge.allow_equal:
+                if not low_edge.val == None:
+                    low_edge.val += 1 # (X)[ -> [(X+1)
+                low_edge.allow_equal = True
+            if not up_edge.allow_equal:
+                if not up_edge.val == None:
+                    up_edge.val -= 1 # ](X) -> (X-1)]
+                up_edge.allow_equal = True
+
+        if (not low_edge.val == None and 
+            not up_edge.val == None and
+            low_edge.val > up_edge.val):
+            raise ValueError("Lower edge of range can't be less than upper edge")
+
+        self.low_edge = low_edge
+        self.up_edge = up_edge
+        self.is_int_range = is_int_range
+
+    def __repr__(self):
+        return "Range(low_edge={},up_edge={},is_int_range={})".format(
+            repr(self.low_edge),
+            repr(self.up_edge),
+            repr(self.is_int_range))
+    
+    def __str__(self):
+        return "{} {} {}".format(
+            str(self.low_edge),
+            "int" if self.is_int_range else "float",
+            str(self.up_edge),
+        )
+
+    def __contains__(self,item):
+        if not is_int_or_float(item):
+            return False
+        elif self.is_int_range and not float(item).is_integer():
+            return False
+        return self.low_edge.evaluate(item) and self.up_edge.evaluate(item)
+    
+    def is_overlapping(self, other):
+        if (self.low_edge <= other.low_edge and
+            self.up_edge >= other.low_edge):
+            return True
+        elif (self.low_edge <= other.up_edge and
+            self.up_edge >= other.up_edge):
+            return True
+        return False
+
+    def is_touching(self,other):
+        if not self.is_int_range == other.is_int_range:
+            return False
+
+        if self.is_int_range:
+            try:
+                if self.up_edge.val == other.low_edge.val - 1:
+                    return True
+            except (TypeError, SyntaxError):
+                pass
+            try:
+                if self.low_edge.val == other.up_edge.val + 1:
+                    return True
+            except (TypeError, SyntaxError):
+                pass
+        else:
+            if (self.up_edge.val == other.low_edge.val and 
+                self.up_edge.val != None and
+                self.up_edge.allow_equal != other.low_edge.allow_equal
+                ):
+                return True
+            if (self.low_edge.val == other.up_edge.val and 
+                self.low_edge.val != None and
+                self.low_edge.allow_equal != other.up_edge.allow_equal
+                ):
+                return True
+
+        return self.is_overlapping(other)
+        '''
+        if self.is_int_range:
+            if (self.low_edge.val == other.up_edge.val + 1 or
+                self.up_edge.val + 1 == other.low_edge.val):
+                return True
+        else:
+            if (self.low_edge.val == other.up_edge.val and
+                (self.low_edge.allow_equal or other.up_edge.allow_equal)):
+                return True
+            elif (self.up_edge.val == other.low_edge.val and
+                (self.up_edge.allow_equal or other.low_edge.allow_equal)):
+                return True
+        return self.is_overlapping(other)
+        '''
+
+    def merge(self, other):
+        if not self.is_int_range == other.is_int_range:
+            raise ValueError("Can't merge float range with int range")
+        if not self.is_touching(other):
+            raise ValueError("Not ranges aren't mergeable")
+        lower = (self.low_edge 
+            if self.low_edge >= other.low_edge 
+            else other.low_edge)
+        upper = (self.up_edge 
+            if self.up_edge >= other.up_edge 
+            else other.up_edge)
+        return Range(lower,upper,self.is_int_range)
+
+    def __add__(self,other):
+        self.merge(other)
+
+    def __sub__(self,other):
+        pass
+
 
 class BaseSet(ABC):
     @abstractmethod
     def is_member(self, value):
         pass
-
     @abstractmethod
     def contains_set(self, value):
         pass
-
+    @abstractmethod
     def get_intersection(self, set_b):
-        return IntersectionSet(self, set_b)
-
+        pass
+    @abstractmethod
     def get_union_with(self, set_b):
-        return UnionSet(self,set_b)
-
+        pass
+    @abstractmethod
     def get_difference_from(self, set_b):
-        return DifferenceSet(self,set_b)
-
+        pass
+    @abstractmethod
     def get_complement(self):
-        return ComplementSet(self)
-
-class IntersectionSet(BaseSet):
-    def __init__(self,set_a,set_b):
-        self.set_a = set_a
-        self.set_b = set_b
-
-    def is_member(self, value):
-        return self.set_a.is_member(value) and self.set_b.is_member(value)
-
-    def contains_set(self, value):
         pass
 
-class UnionSet(BaseSet):
-    def __init__(self,set_a,set_b):
-        self.set_a = set_a
-        self.set_b = set_b
 
-    def is_member(self, value):
-        return self.set_a.is_member(value) or self.set_b.is_member(value)
+re2 = RangeEdge(val=3,allow_equal=True)
+re1 = RangeEdge(val=1,allow_equal=False)
+#r = Range(re1,re2, True)
 
-    def contains_set(self, value):
-        pass
+def check_range_less_than():
+    for i in range(1,4):
+        print("\n\n")
+        for is_lower_1 in range(0,2):
+            print("")
+            for allow_equal_1 in range(0,2):
+                for is_lower_2 in range(0,2):
+                    for allow_equal_2 in range(0,2):
+                        r1 = RangeEdge(val=2, allow_equal=allow_equal_1, is_lower=is_lower_1)
+                        r2 = RangeEdge(val=i, allow_equal=allow_equal_2, is_lower=is_lower_2)
+                        print("{} < {}: {}".format(str(r1),str(r2),r1 < r2))
 
-class DifferenceSet(BaseSet):
-    def __init__(self,set_a,set_b):
-        self.set_a = set_a
-        self.set_b = set_b
+#check_range_less_than()
 
-    def is_member(self, value):
-        return self.set_a.is_member(value) and not self.set_b.is_member(value)
+re_l = RangeEdge(6, True,True)
+re_u = RangeEdge(10, False)
 
-    def contains_set(self, value):
-        pass
+range1 = Range(
+    low_edge=RangeEdge(val=1,allow_equal=True),
+    up_edge=RangeEdge(val=2,allow_equal=False),
+    is_int_range=False
+)
+range2 = Range(
+    low_edge=RangeEdge(val=2,allow_equal=True),
+    up_edge=RangeEdge(val=4,allow_equal=True),
+    is_int_range=False
+)
+print(range1)
+print(range2)
+print("Is overlapping: " + str(range1.is_overlapping(range2)))
+print("Is touching: " + str(range1.is_touching(range2)))
 
-class ComplementSet(BaseSet):
-    def __init__(self,set_a):
-        self.set_a = set_a
-
-    def is_member(self, value):
-        return not self.set_a.is_member(value)
-
-    def contains_set(self, value):
-        pass
-
-class EmptySet(BaseSet):
-    def is_member(self,value):
-        return False
-
-    def contains_set(self, value):
-        pass
-
-class UniversalSet(BaseSet):
-    def is_member(self,value):
-        return True
-
-    def contains_set(self, value):
-        pass
-
-class RealNumberSet(BaseSet):
-    def __init__(self,min_val,max_val):
-        self.min_limit = min_val if isinstance(min_val, RangeLimitBase) else RangeLimit("min", limit_value=min_val)
-        self.max_limit = max_val if isinstance(max_val, RangeLimitBase) else RangeLimit("max", limit_value=max_val)
-        if not validate_limits(self.min_limit, self.max_limit):
-            raise "Invalid min or max limit for set"
-    
-    def is_member(self, value):
-        if not (isinstance(value,int) or isinstance(value,float)):
-            return False
-        return self.min_limit.evaluate(value) and self.max_limit.evaluate(value)
-
-    def contains_set(self, value):
-        pass
-
-class IntegerSet(RealNumberSet):
-    def is_member(self, value):
-        if not (float(value)).is_integer():
-            return False
-        return super().is_member(value)
-
-    def contains_set(self, value):
-        pass
-
-class IterableSet(BaseSet):
-    def __init__(self,iterable_col):
-        try:
-            iter(iterable_col)
-        except TypeError:
-            raise TypeError("iterable_col should be iterable")
-        self.col = iterable_col
-
-    def is_member(self, value):
-        return value in self.col
-
-    def contains_set(self, value):
-        pass
-
-    def is_subset_of(self,set_b):
-        for e in self.col:
-            if not set_b.is_member(e):
-                return False
-        return True
-
-    def __getitem__(self, key):
-        return self.col[key]
+r1 = Range(re_l, re_u, is_int_range=False)
+r2 = Range(9.999999, 15, is_int_range=False)
+'''
+print(r1)
+print(r2)
+print(r1.is_overlapping(r2))'''
